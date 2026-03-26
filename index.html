@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GeoScope Spatial Lab</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="panel">
+        <div class="brand">
+          <p class="eyebrow">Web GIS</p>
+          <h1>GeoScope Spatial Lab</h1>
+          <p class="intro">
+            一个可扩展的 GIS 空间分析系统，支持后端图层接口、属性查询、专题图和基础空间分析。
+          </p>
+        </div>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>系统状态</h2>
+            <span id="systemMode">模式：加载中</span>
+          </div>
+          <div class="actions">
+            <button id="reloadBtn" class="primary">刷新图层</button>
+            <button id="resetDemoBtn" class="ghost">重置示例库</button>
+          </div>
+          <p class="hint" id="datasetStatus">当前图层：加载中</p>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>图层上传</h2>
+            <span id="uploadCapability">格式检测中</span>
+          </div>
+          <label class="field">
+            <span>图层名称</span>
+            <input id="uploadLayerName" type="text" placeholder="默认取文件名" />
+          </label>
+          <label class="field">
+            <span>图层说明</span>
+            <input id="uploadLayerDescription" type="text" placeholder="例如 2026 年监测片区" />
+          </label>
+          <label class="field">
+            <span>图层颜色</span>
+            <input id="uploadLayerColor" type="color" value="#3e8b85" />
+          </label>
+          <label class="upload">
+            <span>数据文件</span>
+            <input id="uploadFile" type="file" accept=".geojson,.json,.zip,.gpkg" />
+          </label>
+          <div class="actions">
+            <button id="uploadBtn" class="primary">导入图层</button>
+            <button id="clearUploadBtn" class="ghost">清空表单</button>
+          </div>
+          <p class="hint" id="uploadHint">支持 GeoJSON、Shapefile ZIP、GeoPackage。</p>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>图层管理</h2>
+            <span>显示 / 选择 / 缩放</span>
+          </div>
+          <div id="layerList" class="layer-list"></div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>属性查询</h2>
+            <span>查询当前激活图层</span>
+          </div>
+          <label class="field">
+            <span>激活图层</span>
+            <select id="activeLayerSelect"></select>
+          </label>
+          <label class="field">
+            <span>关键字</span>
+            <input id="attributeQuery" type="text" placeholder="按属性模糊查询，如 high / 黄浦区" />
+          </label>
+          <div class="actions">
+            <button id="queryBtn" class="primary">查询属性</button>
+            <button id="clearQueryBtn" class="ghost">清空条件</button>
+          </div>
+          <div id="layerStats" class="stats-box">等待图层载入。</div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>专题图</h2>
+            <span>基于当前激活图层</span>
+          </div>
+          <label class="field">
+            <span>字段</span>
+            <select id="themeFieldSelect"></select>
+          </label>
+          <div class="actions">
+            <button id="applyThemeBtn" class="primary">应用专题图</button>
+            <button id="clearThemeBtn" class="ghost">清除专题图</button>
+          </div>
+          <div id="themeLegend" class="theme-legend">未应用专题图。</div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>空间分析</h2>
+            <span>点击地图要素绑定到 A / B</span>
+          </div>
+          <label class="field">
+            <span>当前点击绑定到</span>
+            <select id="selectionTarget">
+              <option value="a">分析对象 A</option>
+              <option value="b">分析对象 B</option>
+            </select>
+          </label>
+          <div class="selection-grid">
+            <article class="selection-card a-slot">
+              <p class="slot-label">对象 A</p>
+              <div id="selectionA" class="selection-body">未选择</div>
+            </article>
+            <article class="selection-card b-slot">
+              <p class="slot-label">对象 B</p>
+              <div id="selectionB" class="selection-body">未选择</div>
+            </article>
+          </div>
+          <label class="field">
+            <span>缓冲区半径（米）</span>
+            <input id="bufferRadius" type="number" min="10" step="10" value="500" />
+          </label>
+          <div class="actions stacked">
+            <button id="bufferBtn" class="primary">对 A 生成缓冲区</button>
+            <button id="intersectBtn">A / B 相交分析</button>
+            <button id="pipBtn">点是否落区</button>
+            <button id="focusBtn" class="ghost">缩放到全部图层</button>
+          </div>
+          <p class="hint">
+            支持面积、长度和包围盒自动统计；点击要素后会在对象卡片中显示。
+          </p>
+        </section>
+
+        <section class="card result-card">
+          <div class="section-head">
+            <h2>日志</h2>
+            <button id="clearLogBtn" class="text-btn">清空</button>
+          </div>
+          <ul id="resultLog" class="result-log">
+            <li>系统启动中，等待后端接口返回。</li>
+          </ul>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <div class="map-head">
+          <div>
+            <p class="eyebrow">Spatial Analysis</p>
+            <h2>地图工作台</h2>
+          </div>
+          <div class="legend">
+            <span><i class="swatch swatch-a"></i>分析对象 A</span>
+            <span><i class="swatch swatch-b"></i>分析对象 B</span>
+            <span><i class="swatch swatch-result"></i>分析结果 / 高亮</span>
+          </div>
+        </div>
+        <div id="map"></div>
+        <section class="table-card">
+          <div class="section-head">
+            <h2>属性表</h2>
+            <span id="attributeSummary">暂无查询结果</span>
+          </div>
+          <div class="table-wrap">
+            <table class="attribute-table">
+              <thead>
+                <tr>
+                  <th>Feature ID</th>
+                  <th>Geometry</th>
+                  <th>Properties</th>
+                </tr>
+              </thead>
+              <tbody id="attributeTableBody">
+                <tr>
+                  <td colspan="3" class="empty-cell">等待图层载入。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
