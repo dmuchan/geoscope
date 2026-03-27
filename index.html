@@ -156,19 +156,26 @@
       </aside>
 
       <main class="workspace">
-        <div class="map-head">
-          <div>
-            <p class="eyebrow">Spatial Analysis</p>
-            <h2>地图工作台</h2>
+        <div class="map-area">
+          <div class="map-head">
+            <div>
+              <p class="eyebrow">Spatial Analysis</p>
+              <h2>地图工作台</h2>
+            </div>
+            <div class="legend">
+              <span><i class="swatch swatch-a"></i>分析对象 A</span>
+              <span><i class="swatch swatch-b"></i>分析对象 B</span>
+              <span><i class="swatch swatch-result"></i>分析结果 / 高亮</span>
+            </div>
           </div>
-          <div class="legend">
-            <span><i class="swatch swatch-a"></i>分析对象 A</span>
-            <span><i class="swatch swatch-b"></i>分析对象 B</span>
-            <span><i class="swatch swatch-result"></i>分析结果 / 高亮</span>
+          <div class="map-search">
+            <input id="mapSearchInput" type="search" placeholder="搜索地点或属性..." />
+            <button id="mapSearchBtn">搜索</button>
           </div>
+          <div id="map"></div>
+          <div class="map-footer" id="mapFooter">当前图层：<span id="mapFooterLayer">-</span> | 缩放等级：<span id="mapZoomLevel">-</span></div>
         </div>
-        <div id="map"></div>
-        <section class="table-card">
+        <section class="table-card right-table">
           <div class="section-head">
             <h2>属性表</h2>
             <span id="attributeSummary">暂无查询结果</span>

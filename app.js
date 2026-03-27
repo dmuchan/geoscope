@@ -14,7 +14,7 @@ const state = {
   },
 };
 
-const map = L.map("map", { zoomControl: false }).setView([31.228, 121.486], 12);
+const map = L.map("map", { zoomControl: false, minZoom: 0, maxZoom: 18, worldCopyJump: true }).setView([31.23, 121.49], 13);
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
@@ -40,6 +40,10 @@ const resultLayerGroup = L.geoJSON(null, {
 const refs = {
   systemMode: document.querySelector("#systemMode"),
   datasetStatus: document.querySelector("#datasetStatus"),
+  mapFooterLayer: document.querySelector("#mapFooterLayer"),
+  mapZoomLevel: document.querySelector("#mapZoomLevel"),
+  mapSearchInput: document.querySelector("#mapSearchInput"),
+  mapSearchBtn: document.querySelector("#mapSearchBtn"),
   uploadCapability: document.querySelector("#uploadCapability"),
   uploadLayerName: document.querySelector("#uploadLayerName"),
   uploadLayerDescription: document.querySelector("#uploadLayerDescription"),
@@ -96,10 +100,50 @@ refs.clearLogBtn.addEventListener("click", () => {
   addLog("日志已清空。");
 });
 
+refs.mapSearchBtn.addEventListener("click", async () => {
+  const keyword = refs.mapSearchInput.value.trim();
+  if (!keyword) {
+    addLog("搜索失败：请输入关键字。", true);
+    return;
+  }
+
+  const layer = state.layers.get(state.activeLayerId);
+  if (!layer || !layer.geojson?.features?.length) {
+    addLog("搜索失败：当前图层无要素。", true);
+    return;
+  }
+
+  const feature = layer.geojson.features.find((item) => {
+    return Object.values(item.properties || {}).some((value) =>
+      String(value).toLowerCase().includes(keyword.toLowerCase())
+    );
+  });
+
+  if (!feature) {
+    addLog(`搜索 "${keyword}" 没有匹配结果。`, true);
+    return;
+  }
+
+  const compoundId = buildCompoundId(state.activeLayerId, feature.id);
+  handleTableRowClick(state.activeLayerId, feature.id);
+  const registryItem = state.featureRegistry.get(compoundId);
+  if (registryItem) {
+    const bounds = registryItem.leafletLayer.getBounds && registryItem.leafletLayer.getBounds();
+    if (bounds?.isValid()) {
+      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16, animate: true, duration: 0.8 });
+    } else if (registryItem.leafletLayer.getLatLng) {
+      map.panTo(registryItem.leafletLayer.getLatLng());
+    }
+  }
+  addLog(`搜索成功：已定位到要素 ${feature.id}`);
+});
+
 document.querySelector("#bufferBtn").addEventListener("click", runBufferAnalysis);
 document.querySelector("#intersectBtn").addEventListener("click", runIntersectionAnalysis);
 document.querySelector("#pipBtn").addEventListener("click", runPointInPolygonAnalysis);
 document.querySelector("#focusBtn").addEventListener("click", fitVisibleLayers);
+
+map.on("zoomend moveend", updateMapFooter);
 
 initializeData(false);
 
@@ -147,11 +191,12 @@ async function initializeData(showReloadLog, preferredLayerId = state.activeLaye
     renderLayerList();
 
     for (const layer of items) {
-      await ensureLayerLoaded(layer.id);
+      await ensureLayerLoadedWithRetry(layer.id);
     }
 
     await refreshActiveLayerPanel();
     fitVisibleLayers();
+    setTimeout(() => map.invalidateSize(), 200);
 
     if (showReloadLog) {
       addLog(`图层刷新完成，共 ${items.length} 个图层。`);
@@ -237,7 +282,7 @@ async function ensureLayerLoaded(layerId) {
     onEachFeature: (feature, leafletLayer) => {
       const compoundId = buildCompoundId(layerId, feature.id);
       state.featureRegistry.set(compoundId, { layerId, feature, leafletLayer });
-      leafletLayer.on("click", () => handleFeatureClick(layerId, feature.id));
+      leafletLayer.on("click", () => handleFeatureClick(layerId, feature.id, true));
       leafletLayer.bindPopup(renderPopup(layerId, feature), { className: "feature-popup" });
     },
   });
@@ -245,6 +290,27 @@ async function ensureLayerLoaded(layerId) {
   if (layer.visible) {
     layer.leafletLayer.addTo(map);
   }
+}
+
+async function ensureLayerLoadedWithRetry(layerId, maxRetries = 3) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await ensureLayerLoaded(layerId);
+      if (attempt > 1) {
+        addLog(`图层 ${layerId} 加载成功（第 ${attempt} 次尝试）。`);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        const delay = Math.pow(2, attempt - 1) * 500; // 指数退避：500ms, 1000ms, 2000ms
+        addLog(`图层 ${layerId} 加载失败，${delay}ms 后重试...`, true);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  addLog(`图层 ${layerId} 加载失败（已重试 ${maxRetries - 1} 次）：${lastError?.message || "未知错误"}`, true);
 }
 
 function renderLayerList() {
@@ -278,6 +344,33 @@ function renderLayerList() {
   refs.layerList.querySelectorAll(".focus-layer-btn").forEach((element) => {
     element.addEventListener("click", () => zoomToLayer(element.dataset.layerId));
   });
+
+  refs.layerList.querySelectorAll(".activate-layer-btn").forEach((element) => {
+    element.addEventListener("click", async () => {
+      state.activeLayerId = element.dataset.layerId;
+      refs.activeLayerSelect.value = state.activeLayerId;
+      renderLayerList();
+      await refreshActiveLayerPanel();
+    });
+  });
+}
+
+function toggleLayerVisibility(layerId, visible) {
+  const layer = state.layers.get(layerId);
+  if (!layer || !layer.leafletLayer) {
+    return;
+  }
+
+  layer.visible = visible;
+  if (visible) {
+    layer.leafletLayer.addTo(map);
+  } else {
+    map.removeLayer(layer.leafletLayer);
+  }
+  addLog(`${layer.name} 已${visible ? "显示" : "隐藏"}。`);
+}
+
+async function refreshActiveLayerPanel() {
 
   refs.layerList.querySelectorAll(".activate-layer-btn").forEach((element) => {
     element.addEventListener("click", async () => {
@@ -345,7 +438,7 @@ function renderAttributesTable(payload) {
   refs.attributeTableBody.innerHTML = items
     .map((item) => {
       const compoundId = buildCompoundId(state.activeLayerId, item.featureId);
-      const activeClass = isFeatureSelected(compoundId) ? "active-row" : "";
+      const activeClass = state.tableSelectedFeature === compoundId ? "active-row" : "";
       return `
         <tr class="${activeClass}" data-feature-id="${item.featureId}">
           <td>${item.featureId}</td>
@@ -435,13 +528,19 @@ function clearTheme() {
 
 function renderAttributesTableFromCurrentSelection() {
   const rows = refs.attributeTableBody.querySelectorAll("tr[data-feature-id]");
+  let selectedRow = null;
   rows.forEach((row) => {
     const compoundId = buildCompoundId(state.activeLayerId, row.dataset.featureId);
-    // 检查是否是属性表当前选中行或选择槽选中
-    const isTableSelected = state.tableSelectedFeature === compoundId;
-    const isSlotSelected = isFeatureSelected(compoundId);
-    row.classList.toggle("active-row", isTableSelected || isSlotSelected);
+    const isActive = state.tableSelectedFeature === compoundId;
+    row.classList.toggle("active-row", isActive);
+    if (isActive) {
+      selectedRow = row;
+    }
   });
+
+  if (selectedRow) {
+    selectedRow.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
 function handleTableRowClick(layerId, featureId) {
@@ -458,6 +557,7 @@ function handleTableRowClick(layerId, featureId) {
   // 清除之前的选中，设置新的选中
   state.tableSelectedFeature = compoundId;
   renderAttributesTableFromCurrentSelection();
+  restyleAllFeatures();
   
   // 高亮闪烁地图上的要素
   const registryItem = state.featureRegistry.get(compoundId);
@@ -468,7 +568,7 @@ function handleTableRowClick(layerId, featureId) {
     if (typeof registryItem.leafletLayer.getBounds === "function") {
       const bounds = registryItem.leafletLayer.getBounds();
       if (bounds.isValid()) {
-        map.fitBounds(bounds.pad(0.6));
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true, duration: 0.8 });
       } else if (registryItem.leafletLayer.getLatLng) {
         map.panTo(registryItem.leafletLayer.getLatLng());
       }
@@ -515,7 +615,7 @@ function highlightSingleFeatureWithFlash(leafletLayer, layerId, feature) {
   }, interval);
 }
 
-function handleFeatureClick(layerId, featureId, panToFeature = false) {
+async function handleFeatureClick(layerId, featureId, panToFeature = false) {
   const compoundId = buildCompoundId(layerId, featureId);
   const targetSlot = refs.selectionTarget.value;
   state.selection[targetSlot] = compoundId;
@@ -523,12 +623,22 @@ function handleFeatureClick(layerId, featureId, panToFeature = false) {
   restyleAllFeatures();
   renderAttributesTableFromCurrentSelection();
 
+  // 设置属性表选中要素（双向联动）
+  state.tableSelectedFeature = compoundId;
+  if (layerId !== state.activeLayerId) {
+    state.activeLayerId = layerId;
+    refs.activeLayerSelect.value = layerId;
+    await refreshActiveLayerPanel();
+  } else {
+    renderAttributesTableFromCurrentSelection();
+  }
+
   const registryItem = state.featureRegistry.get(compoundId);
   if (registryItem && panToFeature) {
     if (typeof registryItem.leafletLayer.getBounds === "function") {
       const bounds = registryItem.leafletLayer.getBounds();
       if (bounds.isValid()) {
-        map.fitBounds(bounds.pad(0.6));
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true, duration: 0.8 });
       } else if (registryItem.leafletLayer.getLatLng) {
         map.panTo(registryItem.leafletLayer.getLatLng());
       }
@@ -544,7 +654,7 @@ function renderAttributesTableFromCurrentSelection() {
   const rows = refs.attributeTableBody.querySelectorAll("tr[data-feature-id]");
   rows.forEach((row) => {
     const compoundId = buildCompoundId(state.activeLayerId, row.dataset.featureId);
-    row.classList.toggle("active-row", isFeatureSelected(compoundId));
+    row.classList.toggle("active-row", state.tableSelectedFeature === compoundId);
   });
 }
 
@@ -670,7 +780,8 @@ function zoomToLayer(layerId) {
 
   const bounds = layer.leafletLayer.getBounds();
   if (bounds.isValid()) {
-    map.fitBounds(bounds.pad(0.2));
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true, duration: 0.8 });
+    map.setMaxBounds(bounds.pad(0.05));
   }
 }
 
@@ -686,14 +797,19 @@ function fitVisibleLayers() {
   });
 
   if (bounds.isValid()) {
-    map.fitBounds(bounds.pad(0.2));
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true, duration: 0.8 });
+    map.setMaxBounds(bounds.pad(0.1));
+  } else {
+    // 如果没有可见图层，设置一个默认的世界视图
+    map.setView([20, 0], 2);
+    map.setMaxBounds(null);
   }
 }
 
 function fitResultOrVisible() {
   const bounds = resultLayerGroup.getBounds();
   if (bounds.isValid()) {
-    map.fitBounds(bounds.pad(0.2));
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true, duration: 0.8 });
     return;
   }
   fitVisibleLayers();
