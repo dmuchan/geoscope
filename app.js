@@ -781,7 +781,8 @@ function zoomToLayer(layerId) {
   const bounds = layer.leafletLayer.getBounds();
   if (bounds.isValid()) {
     map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true, duration: 0.8 });
-    map.setMaxBounds(bounds.pad(0.05));
+    // 取消最大范围限制，避免刷新图层后地图拖动被锁定
+    map.setMaxBounds(null);
   }
 }
 
@@ -798,7 +799,8 @@ function fitVisibleLayers() {
 
   if (bounds.isValid()) {
     map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13, animate: true, duration: 0.8 });
-    map.setMaxBounds(bounds.pad(0.1));
+    // 取消最大范围限制，避免刷新图层后地图拖动被锁定
+    map.setMaxBounds(null);
   } else {
     // 如果没有可见图层，设置一个默认的世界视图
     map.setView([20, 0], 2);
